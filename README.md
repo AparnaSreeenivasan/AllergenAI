@@ -7,7 +7,7 @@ An experimental AI-based system that uses three-dimensional protein structure re
 [![Live App](https://img.shields.io/badge/Live%20App-Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://allergenai.streamlit.app/)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/Deep%20Learning-PyTorch-orange?logo=pytorch)](https://pytorch.org/)
-[![Bioinformatics](https://img.shields.io/badge/Domain-Bioinformatics-green)](https://www.ncbi.nlm.nih.gov/)
+
 
 ---
 
