@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import textwrap
 from pathlib import Path
 from collections import Counter
 from typing import Any
@@ -15,8 +16,19 @@ import torch
 import torch.nn as nn
 import py3Dmol
 
+# Streamlit's Markdown parser treats indented HTML as a code block.
+# Dedent only Markdown calls that explicitly allow HTML, preserving
+# ordinary Markdown content and all existing application functionality.
+_original_st_markdown = st.markdown
+def _dedented_st_markdown(body, *args, **kwargs):
+    if kwargs.get("unsafe_allow_html", False) and isinstance(body, str):
+        body = textwrap.dedent(body).strip()
+    return _original_st_markdown(body, *args, **kwargs)
+st.markdown = _dedented_st_markdown
+
 from Bio.PDB import PDBParser
-from Bio.SeqUtils import seq1, molecular_weight
+from Bio.SeqUtils import seq1
+from Bio.SeqUtils.ProtParam import ProteinAnalysis
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -724,10 +736,9 @@ def get_protein_information(pdb_text):
             and "X" not in combined_sequence
         ):
 
-            weight = molecular_weight(
-                combined_sequence,
-                seq_type="protein"
-            )
+            weight = ProteinAnalysis(
+                combined_sequence
+            ).molecular_weight()
 
     except Exception:
 
@@ -2442,4 +2453,5 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
+
 
