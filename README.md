@@ -356,7 +356,11 @@ Further validation using larger, independent and sequence-similarity-aware test 
 
 ## 8. Streamlit Application
 
-AllergenAI includes a Streamlit application for interactive protein structure analysis and model inference.
+AllergenAI includes a deployed Streamlit application for interactive protein structure analysis and model inference.
+
+### Live Application
+
+**[Launch AllergenAI — Live Streamlit Application](https://allergenai.streamlit.app/)**
 
 ### Application Features
 
@@ -366,7 +370,7 @@ AllergenAI includes a Streamlit application for interactive protein structure an
 | Structure Processing | Extract supported atomic coordinates. |
 | 3D CNN Prediction | Generate an allergen/non-allergen prediction. |
 | Protein Information | Display available protein sequence and composition information. |
-| 3D Visualisation | Explore the uploaded protein structure interactively. |
+| 3D Visualisation | Explore protein structures interactively. |
 | Evaluation Metrics | Display the supplied model evaluation results. |
 | PDF Report | Generate and download a prediction report. |
 
@@ -383,7 +387,15 @@ AllergenAI includes a Streamlit application for interactive protein structure an
 | ReportLab | PDF report generation |
 | Pandas | Evaluation metric handling |
 
+### Access the Application
+
+The application is publicly accessible through Streamlit Community Cloud.
+
+**Live URL:** https://allergenai.streamlit.app/
+
 **Important:** The sequence information displayed in the application is for inspection. The current classifier uses the 3D voxel representation, not the displayed amino acid sequence.
+
+
 
 ---
 
