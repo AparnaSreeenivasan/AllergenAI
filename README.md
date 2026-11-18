@@ -549,17 +549,35 @@ The broader research direction is to investigate whether incorporating protein s
 
 ## 14. Project Information
 
-**Project:** AllergenAI — 3D CNN-Based Protein Allergen Prediction
+**Project Title:** AllergenAI — Explainable 3D CNN for Protein Allergen Prediction
+
+**Course:** AI for Molecular Science — Capstone Project
 
 **Domain:** Bioinformatics | Artificial Intelligence | Computational Biology | Deep Learning
 
-**Primary Approach:** Three-dimensional Convolutional Neural Network
+### Authors
 
-**Input:** Protein structure (PDB)
+- **Aparna Sreenivasan**
+- **Sreekutty Santhosh**
 
-**Output:** Binary allergen/non-allergen classification
+### Technical Overview
 
-**Application:** Streamlit
+| Component | Details |
+|---|---|
+| Primary Approach | 3D Convolutional Neural Network |
+| Input | Protein structure (PDB) |
+| Representation | 3D voxel grid (48 × 48 × 48) |
+| Output | Allergen / Non-Allergen classification |
+| Framework | PyTorch |
+| Application | Streamlit |
+
+**Live Application:** [AllergenAI — Streamlit](https://allergenai.streamlit.app/)
+
+**Development Status:** Deployed Experimental Research Prototype
+
+---
+
+*Developed as part of the AI for Molecular Science Capstone Project.*
 
 **Development Status:** Experimental research prototype
 
