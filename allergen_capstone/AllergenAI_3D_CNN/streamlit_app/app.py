@@ -1,51 +1,27 @@
 
-from __future__ import annotations
-
-import hashlib
-import io
-import textwrap
-from pathlib import Path
-from collections import Counter
-from typing import Any
-
-import numpy as np
-import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
+import tempfile
+import os
+import io
+import textwrap
+
+from pathlib import Path
+from collections import Counter
+from Bio.PDB import PDBParser
+from Bio.SeqUtils import seq1, molecular_weight
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
 import py3Dmol
 
-# Streamlit's Markdown parser treats indented HTML as a code block.
-# Dedent only Markdown calls that explicitly allow HTML, preserving
-# ordinary Markdown content and all existing application functionality.
-_original_st_markdown = st.markdown
-def _dedented_st_markdown(body, *args, **kwargs):
-    if kwargs.get("unsafe_allow_html", False) and isinstance(body, str):
-        body = textwrap.dedent(body).strip()
-    return _original_st_markdown(body, *args, **kwargs)
-st.markdown = _dedented_st_markdown
 
-from Bio.PDB import PDBParser
-from Bio.SeqUtils import seq1
-from Bio.SeqUtils.ProtParam import ProteinAnalysis
-
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import mm
-from reportlab.platypus import (
-    SimpleDocTemplate,
-    Paragraph,
-    Spacer,
-    Table,
-    TableStyle
-)
-
-
-# ============================================================
+# =========================================================
 # 1. PAGE CONFIGURATION
-# ============================================================
+# =========================================================
 
 st.set_page_config(
     page_title="AllergenAI | Protein Intelligence",
@@ -55,277 +31,216 @@ st.set_page_config(
 )
 
 
-# ============================================================
-# 2. PROFESSIONAL UI DESIGN
-# ============================================================
+# =========================================================
+# 2. CUSTOM PROFESSIONAL THEME
+# =========================================================
 
-st.markdown(
-    """
-    <style>
+st.markdown("""
+<style>
 
-    @import url(
-    'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap'
+/* Main application background */
+.stApp {
+    background:
+        radial-gradient(
+            circle at 10% 5%,
+            rgba(13, 148, 136, 0.16),
+            transparent 28%
+        ),
+        radial-gradient(
+            circle at 90% 90%,
+            rgba(6, 182, 212, 0.10),
+            transparent 30%
+        ),
+        linear-gradient(
+            135deg,
+            #071525 0%,
+            #0b1d30 55%,
+            #102a3b 100%
+        );
+    color: #e8f3f7;
+}
+
+header[data-testid="stHeader"] {
+    background: rgba(7, 21, 37, 0.96);
+}
+
+header[data-testid="stHeader"] button {
+    color: #e8f3f7;
+}
+
+/* Main content spacing */
+.block-container {
+    max-width: 1350px;
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+}
+
+/* Headings */
+h1, h2, h3 {
+    color: #e9f8fa !important;
+    font-weight: 700 !important;
+}
+
+/* Body text */
+p, label {
+    color: #c4d9e2;
+}
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+    background: linear-gradient(
+        180deg,
+        #061321 0%,
+        #102b40 100%
     );
+    border-right: 1px solid #1d5263;
+}
 
-    :root {
-        --ink: #17343b;
-        --muted: #687f83;
-        --teal: #087f78;
-        --teal-dark: #075e59;
-        --mint: #e8f5f1;
-        --line: #dce9e5;
-        --surface: #ffffff;
-        --canvas: #f4f8f6;
-    }
+/* Sidebar title */
+section[data-testid="stSidebar"] h1 {
+    color: #5eead4 !important;
+}
 
-    html, body, [class*="css"] {
-        font-family: 'DM Sans', sans-serif;
-    }
+/* Sidebar navigation text */
+section[data-testid="stSidebar"] label {
+    color: #d5edf0 !important;
+}
 
-    .stApp {
-        background: var(--canvas);
-        color: var(--ink);
-    }
+/* Buttons */
+.stButton > button {
+    background: linear-gradient(
+        90deg,
+        #0d9488,
+        #0891b2
+    );
+    color: white !important;
+    border: none;
+    border-radius: 12px;
+    padding: 0.65rem 1.2rem;
+    font-weight: 700;
+    transition: 0.2s;
+}
 
-    [data-testid="stHeader"] {
-        background: rgba(244,248,246,0.92);
-    }
+.stButton > button:hover {
+    background: linear-gradient(
+        90deg,
+        #14b8a6,
+        #22d3ee
+    );
+    transform: translateY(-2px);
+    border: none;
+}
 
-    .block-container {
-        max-width: 1440px;
-        padding-top: 2rem;
-        padding-bottom: 3.5rem;
-    }
+/* Metric cards */
+div[data-testid="stMetric"] {
+    background: rgba(20, 53, 72, 0.82);
+    border: 1px solid rgba(45, 212, 191, 0.30);
+    padding: 18px;
+    border-radius: 16px;
+}
 
-    h1, h2, h3, h4 {
-        font-family: 'Manrope', sans-serif !important;
-        color: var(--ink) !important;
-        letter-spacing: -0.025em;
-    }
+/* Metric values */
+div[data-testid="stMetricValue"] {
+    color: #5eead4;
+    font-weight: 800;
+}
 
-    p, li, label {
-        color: #405c61;
-    }
+/* File uploader */
+div[data-testid="stFileUploader"] {
+    background: rgba(17, 48, 67, 0.65);
+    border: 1px dashed #2dd4bf;
+    padding: 14px;
+    border-radius: 14px;
+}
 
-    [data-testid="stSidebar"] {
-        background: #ffffff;
-        border-right: 1px solid var(--line);
-    }
+/* Dataframe */
+div[data-testid="stDataFrame"] {
+    border: 1px solid #245466;
+    border-radius: 12px;
+}
 
-    [data-testid="stSidebar"] > div:first-child {
-        padding-top: 1.2rem;
-    }
+/* Progress bar */
+div[data-testid="stProgressBar"] > div > div {
+    background: linear-gradient(
+        90deg,
+        #0d9488,
+        #22d3ee
+    );
+}
 
-    .brand-card {
-        padding: 20px 18px;
-        border: 1px solid #cfe5df;
-        border-radius: 18px;
-        background: linear-gradient(
-            145deg,
-            #f5fbf8,
-            #e7f4ef
-        );
-        margin-bottom: 24px;
-    }
+/* Alerts */
+div[data-testid="stAlert"] {
+    border-radius: 12px;
+}
 
-    .brand-name {
-        font-family: 'Manrope', sans-serif;
-        font-size: 25px;
-        font-weight: 800;
-        color: #087f78;
-    }
+/* Dividers */
+hr {
+    border-color: rgba(45, 212, 191, 0.25);
+}
 
-    .brand-caption {
-        color: #67817e;
-        font-size: 12px;
-        margin-top: 7px;
-        letter-spacing: .04em;
-    }
+/* Captions */
+.stCaption {
+    color: #8baebb !important;
+}
 
-    .eyebrow {
-        color: #087f78;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: .15em;
-        font-weight: 700;
-        margin-bottom: 9px;
-    }
+/* Input fields */
+.stTextInput input,
+.stTextArea textarea {
+    background-color: #102b40;
+    color: #e8f3f7;
+    border: 1px solid #245466;
+    border-radius: 10px;
+}
 
-    .hero {
-        padding: 34px 36px;
-        border-radius: 24px;
-        background: linear-gradient(
-            115deg,
-            #ffffff 0%,
-            #edf7f3 100%
-        );
-        border: 1px solid #d7e9e3;
-        box-shadow: 0 8px 28px rgba(28,75,67,0.045);
-        margin-bottom: 24px;
-    }
+/* Footer */
+footer {
+    visibility: hidden;
+}
 
-    .hero h1 {
-        font-size: clamp(30px, 4vw, 46px);
-        line-height: 1.1;
-        margin: 0 0 12px 0;
-    }
-
-    .hero p {
-        max-width: 760px;
-        font-size: 16px;
-        line-height: 1.7;
-        color: #587276;
-        margin: 0;
-    }
-
-    .section-kicker {
-        color: #087f78;
-        font-size: 11px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: .13em;
-        margin-bottom: 5px;
-    }
-
-    .soft-card {
-        background: #ffffff;
-        border: 1px solid var(--line);
-        border-radius: 17px;
-        padding: 19px 20px;
-        box-shadow: 0 5px 18px rgba(28,75,67,0.035);
-    }
-
-    .soft-card h3 {
-        font-size: 17px;
-        margin: 0 0 8px 0;
-    }
-
-    .soft-card p {
-        font-size: 13px;
-        line-height: 1.6;
-        margin: 0;
-        color: #6b8083;
-    }
-
-    .small-label {
-        color: #708589;
-        text-transform: uppercase;
-        letter-spacing: .08em;
-        font-size: 10px;
-        font-weight: 700;
-    }
-
-    .result-title {
-        font-family: 'Manrope', sans-serif;
-        font-size: 23px;
-        font-weight: 800;
-        margin-bottom: 4px;
-    }
-
-    .stButton > button,
-    .stDownloadButton > button {
-        border-radius: 11px;
-        border: 1px solid #087f78;
-        background: #087f78;
-        color: #ffffff;
-        font-weight: 700;
-        padding: .62rem 1.05rem;
-        transition: all .18s ease;
-    }
-
-    .stButton > button:hover,
-    .stDownloadButton > button:hover {
-        background: #075e59;
-        border-color: #075e59;
-        color: #ffffff;
-        transform: translateY(-1px);
-    }
-
-    [data-testid="stFileUploader"] {
-        border: 1px dashed #9bc9bd;
-        border-radius: 15px;
-        background: #fbfdfc;
-        padding: 12px;
-    }
-
-    [data-testid="stMetric"] {
-        background: #ffffff;
-        border: 1px solid var(--line);
-        border-radius: 15px;
-        padding: 15px 17px;
-        box-shadow: 0 4px 15px rgba(28,75,67,0.025);
-    }
-
-    [data-testid="stMetricValue"] {
-        color: #087f78;
-        font-family: 'Manrope', sans-serif;
-        font-weight: 800;
-    }
-
-    [data-testid="stDataFrame"] {
-        border: 1px solid var(--line);
-        border-radius: 12px;
-    }
-
-    div[data-testid="stAlert"] {
-        border-radius: 12px;
-    }
-
-    hr {
-        border-color: #dce9e5;
-    }
-
-    footer {
-        visibility: hidden;
-    }
-
-    @media (max-width: 700px) {
-        .block-container {
-            padding-left: 1rem;
-            padding-right: 1rem;
-        }
-
-        .hero {
-            padding: 24px 21px;
-        }
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+</style>
+""", unsafe_allow_html=True)
 
 
-# ============================================================
-# 3. PROJECT PATHS AND MODEL SETTINGS
-# ============================================================
+def render_html(markup, container=st):
+    markup = textwrap.dedent(markup)
+    markup = "\n".join(line.lstrip() for line in markup.splitlines())
+    container.markdown(markup, unsafe_allow_html=True)
 
-APP_FOLDER = Path(__file__).resolve().parent
+
+# =========================================================
+# 3. PROJECT PATHS
+# =========================================================
+
+APP_FOLDER = Path(__file__).parent
 
 MODEL_PATH = APP_FOLDER / "allergen3d_cnn_final.pt"
 
 METRICS_PATH = APP_FOLDER / "3d_cnn_evaluation_metrics.csv"
 
-GRID_SIZE = 48
 
+# =========================================================
+# 4. MODEL SETTINGS
+# =========================================================
+
+GRID_SIZE = 48
 VOXEL_SIZE = 2.5
 
 ELEMENTS = ["C", "N", "O", "S", "P"]
 
-DEVICE = torch.device(
+device = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )
 
 
-# ============================================================
-# 4. EXISTING 3D CNN ARCHITECTURE
-# ============================================================
+# =========================================================
+# 5. DEFINE EXISTING 3D CNN
+# =========================================================
 
 class Allergen3DCNN(nn.Module):
 
     def __init__(self):
 
-        super().__init__()
+        super(Allergen3DCNN, self).__init__()
 
         self.features = nn.Sequential(
 
@@ -345,215 +260,92 @@ class Allergen3DCNN(nn.Module):
             nn.MaxPool3d(2),
 
             nn.AdaptiveAvgPool3d(1)
-
         )
 
         self.classifier = nn.Sequential(
 
             nn.Flatten(),
-
             nn.Linear(64, 32),
-
             nn.ReLU(),
-
             nn.Dropout(0.3),
-
             nn.Linear(32, 1)
-
         )
 
     def forward(self, x):
 
         x = self.features(x)
-
         x = self.classifier(x)
 
         return x
 
 
-# ============================================================
-# 5. LOAD TRAINED MODEL
-# ============================================================
+# =========================================================
+# 6. LOAD TRAINED MODEL
+# =========================================================
 
-@st.cache_resource(show_spinner="Loading trained 3D CNN...")
-
+@st.cache_resource
 def load_model():
 
     if not MODEL_PATH.exists():
 
         raise FileNotFoundError(
-            f"Model file not found: {MODEL_PATH.name}. "
-            "Keep the trained model in the same folder as app.py."
+            f"Model file not found: {MODEL_PATH}"
         )
 
-    model = Allergen3DCNN().to(DEVICE)
+    model = Allergen3DCNN().to(device)
 
-    try:
-
-        checkpoint = torch.load(
-            MODEL_PATH,
-            map_location=DEVICE,
-            weights_only=True
-        )
-
-    except TypeError:
-
-        checkpoint = torch.load(
-            MODEL_PATH,
-            map_location=DEVICE
-        )
-
-    if isinstance(checkpoint, dict):
-
-        if "state_dict" in checkpoint:
-
-            checkpoint = checkpoint["state_dict"]
-
-        elif "model_state_dict" in checkpoint:
-
-            checkpoint = checkpoint["model_state_dict"]
-
-    if isinstance(checkpoint, dict):
-
-        checkpoint = {
-            key.replace("module.", "", 1)
-            if key.startswith("module.")
-            else key: value
-
-            for key, value in checkpoint.items()
-        }
-
-    model.load_state_dict(
-        checkpoint,
-        strict=True
+    checkpoint = torch.load(
+        MODEL_PATH,
+        map_location=device,
+        weights_only=True
     )
+
+    model.load_state_dict(checkpoint)
 
     model.eval()
 
     return model
 
 
+# =========================================================
+# 7. PDB TO VOXEL CONVERSION
+# =========================================================
 
-# ============================================================
-# 6. PDB STRUCTURE VALIDATION
-# ============================================================
-
-def parse_pdb_text(pdb_text):
-
-    if not pdb_text or not pdb_text.strip():
-
-        raise ValueError(
-            "The uploaded PDB file is empty."
-        )
+def pdb_to_voxel(pdb_file):
 
     parser = PDBParser(QUIET=True)
 
-    handle = io.StringIO(pdb_text)
-
-    try:
-
-        structure = parser.get_structure(
-            "uploaded_protein",
-            handle
-        )
-
-    except Exception as exc:
-
-        raise ValueError(
-            f"Could not parse PDB file: {exc}"
-        )
-
-    models = list(structure.get_models())
-
-    if not models:
-
-        raise ValueError(
-            "No protein model found in PDB file."
-        )
-
-    atoms = list(structure.get_atoms())
-
-    if not atoms:
-
-        raise ValueError(
-            "No atoms found in PDB file."
-        )
-
-    supported = [
-
-        atom for atom in atoms
-
-        if (atom.element or "").strip().upper()
-        in ELEMENTS
-
-    ]
-
-    if not supported:
-
-        raise ValueError(
-            "No supported atoms found. "
-            "Expected C, N, O, S or P atoms."
-        )
-
-    return structure
-
-
-# ============================================================
-# 7. PDB TO 3D VOXEL CONVERSION
-# ============================================================
-
-def pdb_to_voxel(pdb_text):
-
-    structure = parse_pdb_text(pdb_text)
-
-    coordinates = []
-
-    elements = []
-
-    first_model = next(
-        structure.get_models()
+    structure = parser.get_structure(
+        "protein",
+        pdb_file
     )
 
-    for atom in first_model.get_atoms():
+    coordinates = []
+    elements = []
 
-        element = (
-            atom.element or ""
-        ).strip().upper()
+    for atom in structure.get_atoms():
+
+        element = atom.element.upper()
 
         if element in ELEMENTS:
 
-            coordinates.append(
-                atom.coord
-            )
+            coordinates.append(atom.coord)
+            elements.append(element)
 
-            elements.append(
-                element
-            )
-
-    if not coordinates:
+    if len(coordinates) == 0:
 
         raise ValueError(
-            "No supported atoms available for voxelization."
+            "No supported atoms found in PDB file."
         )
 
-    coordinates = np.asarray(
+    coordinates = np.array(
         coordinates,
         dtype=np.float32
     )
 
-    if not np.isfinite(coordinates).all():
-
-        raise ValueError(
-            "Invalid atom coordinates detected."
-        )
-
-    # Center protein coordinates
-
     center = coordinates.mean(axis=0)
 
     coordinates = coordinates - center
-
-    # Initialize five-channel voxel grid
 
     voxel = np.zeros(
         (
@@ -569,85 +361,61 @@ def pdb_to_voxel(pdb_text):
 
     outside_atoms = 0
 
-    # Map atoms into voxel grid
-
     for coord, element in zip(
         coordinates,
         elements
     ):
 
-        index = np.rint(
+        index = np.round(
             coord / VOXEL_SIZE + center_grid
         ).astype(int)
 
-        x, y, z = index.tolist()
+        x, y, z = index
 
         if (
-
             0 <= x < GRID_SIZE
-
             and 0 <= y < GRID_SIZE
-
             and 0 <= z < GRID_SIZE
-
         ):
 
-            channel = ELEMENTS.index(
-                element
-            )
+            channel = ELEMENTS.index(element)
 
-            voxel[
-                channel,
-                x,
-                y,
-                z
-            ] = 1.0
+            voxel[channel, x, y, z] = 1.0
 
         else:
 
             outside_atoms += 1
 
-    return (
+    return voxel, outside_atoms, len(coordinates)
+
+
+# =========================================================
+# 8. PREDICTION FUNCTION
+# =========================================================
+
+def predict_protein(pdb_file):
+
+    voxel, outside_atoms, total_atoms = pdb_to_voxel(
+        pdb_file
+    )
+
+    input_tensor = torch.tensor(
         voxel,
-        outside_atoms,
-        len(coordinates)
-    )
-
-
-# ============================================================
-# 8. PROTEIN PREDICTION
-# ============================================================
-
-def predict_protein(pdb_text):
-
-    voxel, outside_atoms, total_atoms = (
-        pdb_to_voxel(pdb_text)
-    )
-
-    input_tensor = torch.from_numpy(
-        voxel
-    ).unsqueeze(0).to(DEVICE)
+        dtype=torch.float32
+    ).unsqueeze(0).to(device)
 
     model = load_model()
 
-    with torch.inference_mode():
+    with torch.no_grad():
 
-        output = model(
-            input_tensor
-        )
+        output = model(input_tensor)
 
-        probability = torch.sigmoid(
-            output
-        ).item()
+        probability = torch.sigmoid(output).item()
 
     prediction = (
-
         "Allergen"
-
         if probability >= 0.5
-
         else "Non-Allergen"
-
     )
 
     return (
@@ -658,29 +426,27 @@ def predict_protein(pdb_text):
     )
 
 
-# ============================================================
+# =========================================================
 # 9. EXTRACT PROTEIN INFORMATION
-# ============================================================
+# =========================================================
 
-def get_protein_information(pdb_text):
+def get_protein_information(pdb_file):
 
-    structure = parse_pdb_text(
-        pdb_text
+    parser = PDBParser(QUIET=True)
+
+    structure = parser.get_structure(
+        "protein",
+        pdb_file
     )
 
-    first_model = next(
-        structure.get_models()
-    )
+    first_model = structure[0]
 
     sequences = {}
 
     residue_count = 0
-
     atom_count = 0
 
     element_counts = Counter()
-
-    # Extract amino acid sequences
 
     for chain in first_model:
 
@@ -692,32 +458,20 @@ def get_protein_information(pdb_text):
 
                 residue_count += 1
 
-                try:
-
-                    amino_acid = seq1(
-                        residue.resname,
-                        custom_map={
-                            "UNK": "X"
-                        }
-                    )
-
-                except Exception:
-
-                    amino_acid = "X"
+                amino_acid = seq1(
+                    residue.resname,
+                    custom_map={"UNK": "X"}
+                )
 
                 sequence += amino_acid
 
         sequences[chain.id] = sequence
 
-    # Extract atom composition
-
-    for atom in first_model.get_atoms():
+    for atom in structure.get_atoms():
 
         atom_count += 1
 
-        element = (
-            atom.element or ""
-        ).strip().upper()
+        element = atom.element.upper()
 
         if element:
 
@@ -731,14 +485,12 @@ def get_protein_information(pdb_text):
 
     try:
 
-        if (
-            combined_sequence
-            and "X" not in combined_sequence
-        ):
+        if combined_sequence and "X" not in combined_sequence:
 
-            weight = ProteinAnalysis(
-                combined_sequence
-            ).molecular_weight()
+            weight = molecular_weight(
+                combined_sequence,
+                seq_type="protein"
+            )
 
     except Exception:
 
@@ -751,36 +503,26 @@ def get_protein_information(pdb_text):
     return {
 
         "sequences": sequences,
-
         "sequence": combined_sequence,
-
         "residues": residue_count,
-
         "atoms": atom_count,
-
         "chains": list(sequences.keys()),
-
         "elements": dict(element_counts),
-
         "amino_acids": dict(amino_acid_counts),
-
         "molecular_weight": weight
 
     }
 
 
-# ============================================================
+# =========================================================
 # 10. INTERACTIVE 3D PROTEIN VIEWER
-# ============================================================
+# =========================================================
 
-def show_3d_structure(
-    pdb_text,
-    style="Cartoon"
-):
+def show_3d_structure(pdb_text, style="Cartoon"):
 
     view = py3Dmol.view(
         width=1100,
-        height=590
+        height=600
     )
 
     view.addModel(
@@ -800,7 +542,7 @@ def show_3d_structure(
 
         view.setStyle({
             "stick": {
-                "radius": 0.16
+                "radius": 0.15
             }
         })
 
@@ -808,7 +550,7 @@ def show_3d_structure(
 
         view.setStyle({
             "sphere": {
-                "scale": 0.28
+                "scale": 0.3
             }
         })
 
@@ -823,14 +565,10 @@ def show_3d_structure(
         view.addSurface(
             py3Dmol.VDW,
             {
-                "opacity": 0.68,
+                "opacity": 0.65,
                 "color": "lightblue"
             }
         )
-
-    view.setBackgroundColor(
-        "#fbfdfc"
-    )
 
     view.zoomTo()
 
@@ -841,9 +579,9 @@ def show_3d_structure(
     )
 
 
-# ============================================================
-# 11. CREATE PDF ANALYSIS REPORT
-# ============================================================
+# =========================================================
+# 11. CREATE PDF REPORT
+# =========================================================
 
 def create_pdf(
     filename,
@@ -856,1523 +594,923 @@ def create_pdf(
 
     buffer = io.BytesIO()
 
-    doc = SimpleDocTemplate(
+    pdf = canvas.Canvas(
         buffer,
-        pagesize=A4,
-        rightMargin=18 * mm,
-        leftMargin=18 * mm,
-        topMargin=18 * mm,
-        bottomMargin=18 * mm
+        pagesize=A4
     )
 
-    styles = getSampleStyleSheet()
+    width, height = A4
 
-    styles.add(
-        ParagraphStyle(
-            name="ReportTitle",
-            parent=styles["Title"],
-            textColor=colors.HexColor("#087f78"),
-            fontSize=21,
-            leading=26,
-            spaceAfter=7
-        )
+    y = height - 55
+
+    pdf.setFillColorRGB(
+        0.04, 0.18, 0.27
     )
 
-    styles.add(
-        ParagraphStyle(
-            name="SectionHeading",
-            parent=styles["Heading2"],
-            textColor=colors.HexColor("#075e59"),
-            fontSize=13,
-            leading=17,
-            spaceBefore=12,
-            spaceAfter=7
-        )
+    pdf.rect(
+        0,
+        height - 100,
+        width,
+        100,
+        fill=1,
+        stroke=0
     )
 
-    story = [
+    pdf.setFillColorRGB(
+        1, 1, 1
+    )
 
-        Paragraph(
-            "AllergenAI",
-            styles["ReportTitle"]
-        ),
+    pdf.setFont(
+        "Helvetica-Bold",
+        22
+    )
 
-        Paragraph(
-            "Protein Structure Analysis Report",
-            styles["BodyText"]
-        ),
+    pdf.drawString(
+        45,
+        height - 55,
+        "AllergenAI Protein Report"
+    )
 
-        Spacer(1, 8 * mm),
+    y = height - 130
 
-        Paragraph(
-            "Prediction Results",
-            styles["SectionHeading"]
-        )
+    pdf.setFillColorRGB(
+        0.05, 0.15, 0.23
+    )
+
+    pdf.setFont(
+        "Helvetica-Bold",
+        14
+    )
+
+    pdf.drawString(
+        45,
+        y,
+        "Prediction Results"
+    )
+
+    y -= 30
+
+    pdf.setFont(
+        "Helvetica",
+        11
+    )
+
+    details = [
+
+        f"Protein file: {filename}",
+
+        f"Prediction: {prediction}",
+
+        f"Allergen probability: {probability * 100:.2f}%",
+
+        f"Non-allergen probability: {(1-probability)*100:.2f}%"
 
     ]
 
-    # Prediction information
+    for detail in details:
 
-    result_data = [
-
-        ["Protein file", filename],
-
-        ["Classification", prediction],
-
-        [
-            "Allergen model score",
-            f"{probability * 100:.2f}%"
-        ],
-
-        [
-            "Non-allergen model score",
-            f"{(1-probability) * 100:.2f}%"
-        ]
-
-    ]
-
-    result_table = Table(
-        result_data,
-        colWidths=[
-            52 * mm,
-            112 * mm
-        ]
-    )
-
-    result_table.setStyle(
-        TableStyle([
-
-            (
-                "BACKGROUND",
-                (0, 0),
-                (0, -1),
-                colors.HexColor("#edf7f3")
-            ),
-
-            (
-                "TEXTCOLOR",
-                (0, 0),
-                (-1, -1),
-                colors.HexColor("#17343b")
-            ),
-
-            (
-                "GRID",
-                (0, 0),
-                (-1, -1),
-                0.4,
-                colors.HexColor("#dce9e5")
-            ),
-
-            (
-                "FONTNAME",
-                (0, 0),
-                (0, -1),
-                "Helvetica-Bold"
-            ),
-
-            (
-                "FONTSIZE",
-                (0, 0),
-                (-1, -1),
-                9
-            ),
-
-            (
-                "PADDING",
-                (0, 0),
-                (-1, -1),
-                8
-            )
-
-        ])
-    )
-
-    story.append(
-        result_table
-    )
-
-    # Protein information
-
-    story.append(
-        Paragraph(
-            "Protein Information",
-            styles["SectionHeading"]
+        pdf.drawString(
+            50,
+            y,
+            detail
         )
+
+        y -= 23
+
+    y -= 15
+
+    pdf.setFont(
+        "Helvetica-Bold",
+        14
     )
 
-    protein_rows = [
+    pdf.drawString(
+        45,
+        y,
+        "Protein Information"
+    )
 
-        ["Residues", str(info["residues"])],
+    y -= 30
 
-        ["Atoms", str(info["atoms"])],
+    pdf.setFont(
+        "Helvetica",
+        11
+    )
 
-        [
-            "Chains",
-            ", ".join(info["chains"]) or "Not available"
-        ],
+    details = [
 
-        [
-            "Supported atoms",
-            str(total)
-        ],
+        f"Number of residues: {info['residues']}",
 
-        [
-            "Atoms outside voxel grid",
-            str(outside)
-        ],
+        f"Number of atoms: {info['atoms']}",
 
-        [
-            "Voxel grid",
-            f"{GRID_SIZE} × {GRID_SIZE} × {GRID_SIZE}"
-        ],
+        f"Protein chains: {', '.join(info['chains'])}",
 
-        [
-            "Voxel size",
-            f"{VOXEL_SIZE} Å"
-        ]
+        f"Supported atoms: {total}",
+
+        f"Atoms outside voxel grid: {outside}"
 
     ]
 
     if info["molecular_weight"] is not None:
 
-        protein_rows.append([
+        details.append(
+            f"Molecular weight: {info['molecular_weight']:.2f} Da"
+        )
 
-            "Molecular weight",
+    for detail in details:
 
-            f"{info['molecular_weight']:,.2f} Da"
+        pdf.drawString(
+            50,
+            y,
+            detail
+        )
 
-        ])
+        y -= 22
 
-    protein_table = Table(
-        protein_rows,
-        colWidths=[
-            75 * mm,
-            89 * mm
-        ]
+    y -= 15
+
+    pdf.setFont(
+        "Helvetica-Bold",
+        14
     )
 
-    protein_table.setStyle(
-        TableStyle([
+    pdf.drawString(
+        45,
+        y,
+        "Atom Composition"
+    )
 
-            (
-                "BACKGROUND",
-                (0, 0),
-                (0, -1),
-                colors.HexColor("#edf7f3")
-            ),
+    y -= 25
 
-            (
-                "GRID",
-                (0, 0),
-                (-1, -1),
-                0.4,
-                colors.HexColor("#dce9e5")
-            ),
+    pdf.setFont(
+        "Helvetica",
+        10
+    )
 
-            (
-                "FONTNAME",
-                (0, 0),
-                (0, -1),
-                "Helvetica-Bold"
-            ),
+    for element, count in info["elements"].items():
 
-            (
-                "FONTSIZE",
-                (0, 0),
-                (-1, -1),
-                9
-            ),
+        if y < 90:
 
-            (
-                "PADDING",
-                (0, 0),
-                (-1, -1),
-                7
+            pdf.showPage()
+            y = height - 60
+
+            pdf.setFont(
+                "Helvetica",
+                10
             )
 
-        ])
-    )
-
-    story.append(
-        protein_table
-    )
-
-    # Atom composition
-
-    story.append(
-        Paragraph(
-            "Atom Composition",
-            styles["SectionHeading"]
+        pdf.drawString(
+            50,
+            y,
+            f"{element}: {count}"
         )
+
+        y -= 18
+
+    y -= 25
+
+    pdf.setFont(
+        "Helvetica",
+        9
     )
 
-    atom_rows = [
-        ["Element", "Count"]
-    ]
-
-    for element, count in sorted(
-        info["elements"].items()
-    ):
-
-        atom_rows.append([
-            element,
-            str(count)
-        ])
-
-    atom_table = Table(
-        atom_rows,
-        colWidths=[
-            55 * mm,
-            55 * mm
-        ]
+    pdf.drawString(
+        45,
+        y,
+        "Research prototype. Not a clinical diagnosis."
     )
 
-    atom_table.setStyle(
-        TableStyle([
+    pdf.save()
 
-            (
-                "BACKGROUND",
-                (0, 0),
-                (-1, 0),
-                colors.HexColor("#e8f5f1")
-            ),
+    buffer.seek(0)
 
-            (
-                "GRID",
-                (0, 0),
-                (-1, -1),
-                0.4,
-                colors.HexColor("#dce9e5")
-            ),
+    return buffer
 
-            (
-                "FONTNAME",
-                (0, 0),
-                (-1, 0),
-                "Helvetica-Bold"
-            ),
 
-            (
-                "FONTSIZE",
-                (0, 0),
-                (-1, -1),
-                9
-            ),
+# =========================================================
+# 12. HEADER FUNCTION
+# =========================================================
 
-            (
-                "PADDING",
-                (0, 0),
-                (-1, -1),
-                7
-            )
+def show_header(title, subtitle):
 
-        ])
-    )
+    render_html(f"""
+        <div style="
+            padding: 26px;
+            border-radius: 20px;
+            background: linear-gradient(
+                110deg,
+                #10334a,
+                #075e65
+            );
+            border: 1px solid #2dd4bf;
+            margin-bottom: 25px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.18);
+        ">
 
-    story.append(
-        atom_table
-    )
-
-    story.append(
-        Spacer(1, 9 * mm)
-    )
-
-    story.append(
-        Paragraph(
-            "<b>Research limitation:</b> AllergenAI is an "
-            "experimental research prototype. Model scores "
-            "are not necessarily calibrated probabilities "
-            "of real-world allergenicity. This report is not "
-            "a clinical or food-safety determination.",
-            styles["BodyText"]
-        )
-    )
-
-    doc.build(story)
-
-    return buffer.getvalue()
-
-# ============================================================
-# 12. SHARED HEADER COMPONENT
-# ============================================================
-
-def show_header(eyebrow, title, subtitle):
-
-    st.markdown(
-        f"""
-        <div class="hero">
-
-            <div class="eyebrow">
-                {eyebrow}
-            </div>
-
-            <h1>
-                {title}
+            <h1 style="
+                color: #ffffff;
+                font-size: 36px;
+                margin-bottom: 8px;
+            ">
+                🧬 {title}
             </h1>
 
-            <p>
+            <p style="
+                color: #c5f7f0;
+                font-size: 16px;
+                margin: 0;
+            ">
                 {subtitle}
             </p>
 
         </div>
-        """,
-        unsafe_allow_html=True
+        """)
+
+
+# =========================================================
+# 13. SIDEBAR NAVIGATION
+# =========================================================
+
+render_html("""
+    <div style="
+        padding: 18px;
+        border-radius: 15px;
+        background: linear-gradient(
+            135deg,
+            #10334a,
+            #075e65
+        );
+        border: 1px solid #2dd4bf;
+        margin-bottom: 20px;
+    ">
+        <h1 style="
+            color: #5eead4;
+            font-size: 27px;
+            margin: 0;
+        ">
+            🧬 AllergenAI
+        </h1>
+
+        <p style="
+            color: #c5f7f0;
+            font-size: 12px;
+            margin: 5px 0 0 0;
+        ">
+            Protein Structure Intelligence
+        </p>
+    </div>
+    """, container=st.sidebar)
+
+page = st.sidebar.radio(
+    "NAVIGATION",
+    [
+        "Home",
+        "Protein Prediction",
+        "3D Structure Viewer",
+        "Protein Analysis",
+        "Model Performance",
+        "About Project"
+    ]
+)
+
+st.sidebar.divider()
+
+st.sidebar.markdown(
+    "**Model Information**"
+)
+
+st.sidebar.caption("Architecture: 3D CNN")
+
+st.sidebar.caption("Input: PDB Structure")
+
+st.sidebar.caption("Grid: 48 × 48 × 48")
+
+st.sidebar.caption(f"Device: {device}")
+
+
+# =========================================================
+# 14. HOME PAGE
+# =========================================================
+
+if page == "Home":
+
+    show_header(
+        "AllergenAI",
+        "AI-Powered Protein Structure Analysis and Allergen Prediction"
     )
-
-
-# ============================================================
-# 13. FILE SIGNATURE
-# ============================================================
-
-def get_file_signature(file_bytes):
-
-    return hashlib.sha256(
-        file_bytes
-    ).hexdigest()
-
-
-# ============================================================
-# 14. PDB FILE UPLOAD COMPONENT
-# ============================================================
-
-def render_upload(label, key):
-
-    uploaded = st.file_uploader(
-        label,
-        type=["pdb"],
-        key=key,
-        help="Upload a protein structure in PDB format."
-    )
-
-    if uploaded is None:
-
-        return None
-
-    file_bytes = uploaded.getvalue()
-
-    if not file_bytes:
-
-        st.error(
-            "The selected file is empty."
-        )
-
-        return None
-
-    if len(file_bytes) > 200 * 1024 * 1024:
-
-        st.error(
-            "File exceeds the 200 MB application limit."
-        )
-
-        return None
-
-    try:
-
-        pdb_text = file_bytes.decode(
-            "utf-8",
-            errors="replace"
-        )
-
-        parse_pdb_text(
-            pdb_text
-        )
-
-    except Exception as exc:
-
-        st.error(
-            f"Invalid PDB structure: {exc}"
-        )
-
-        return None
-
-    st.success(
-        f"Structure ready: {uploaded.name}"
-    )
-
-    st.caption(
-        f"File size: {len(file_bytes) / 1024:.2f} KB"
-    )
-
-    return {
-
-        "name": uploaded.name,
-
-        "bytes": file_bytes,
-
-        "text": pdb_text,
-
-        "signature": get_file_signature(
-            file_bytes
-        )
-
-    }
-
-
-# ============================================================
-# 15. PROTEIN SUMMARY COMPONENT
-# ============================================================
-
-def render_protein_summary(info):
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    col1.metric(
-        "Residues",
-        f"{info['residues']:,}"
-    )
-
-    col2.metric(
-        "Total Atoms",
-        f"{info['atoms']:,}"
-    )
-
-    col3.metric(
-        "Chains",
-        len(info["chains"])
-    )
-
-    weight = info["molecular_weight"]
-
-    col4.metric(
-        "Molecular Weight",
-        f"{weight:,.1f} Da"
-        if weight is not None
-        else "N/A"
-    )
-
-
-# ============================================================
-# 16. AMINO ACID AND ATOM COMPOSITION
-# ============================================================
-
-def render_composition(info):
-
-    amino_df = pd.DataFrame(
-        sorted(
-            info["amino_acids"].items()
-        ),
-        columns=[
-            "Amino Acid",
-            "Count"
-        ]
-    )
-
-    atom_df = pd.DataFrame(
-        sorted(
-            info["elements"].items()
-        ),
-        columns=[
-            "Element",
-            "Atom Count"
-        ]
-    )
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        st.markdown(
-            "#### Amino Acid Composition"
-        )
-
-        if not amino_df.empty:
-
-            st.bar_chart(
-                amino_df.set_index(
-                    "Amino Acid"
-                ),
-                height=260
-            )
-
-            st.dataframe(
-                amino_df,
-                use_container_width=True,
-                hide_index=True
-            )
-
-        else:
-
-            st.info(
-                "No amino acid sequence available."
-            )
-
-    with col2:
-
-        st.markdown(
-            "#### Atom Composition"
-        )
-
-        if not atom_df.empty:
-
-            st.bar_chart(
-                atom_df.set_index(
-                    "Element"
-                ),
-                height=260
-            )
-
-            st.dataframe(
-                atom_df,
-                use_container_width=True,
-                hide_index=True
-            )
-
-        else:
-
-            st.info(
-                "No atom composition available."
-            )
-
-
-# ============================================================
-# 17. PREDICTION RESULT COMPONENT
-# ============================================================
-
-def render_result(result):
-
-    prediction = result["prediction"]
-
-    probability = result["probability"]
-
-    allergen_score = probability * 100
-
-    non_allergen_score = (
-        1 - probability
-    ) * 100
-
-    st.markdown(
-        '<div class="section-kicker">MODEL OUTPUT</div>',
-        unsafe_allow_html=True
-    )
-
-    with st.container(border=True):
-
-        col1, col2 = st.columns([1.3, 1])
-
-        with col1:
-
-            if prediction == "Allergen":
-
-                st.markdown(
-                    """
-                    <div class="result-title"
-                    style="color:#a34c35;">
-                        Allergen class predicted
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-            else:
-
-                st.markdown(
-                    """
-                    <div class="result-title"
-                    style="color:#087f78;">
-                        Non-allergen class predicted
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-            st.write(
-                f"The trained 3D CNN assigned this structure "
-                f"to the **{prediction}** class using the "
-                f"current 0.50 decision threshold."
-            )
-
-            st.caption(
-                "This is an experimental model output, "
-                "not a validated clinical or food-safety conclusion."
-            )
-
-        with col2:
-
-            st.metric(
-                "Allergen Model Score",
-                f"{allergen_score:.2f}%"
-            )
-
-            st.progress(
-                float(
-                    np.clip(
-                        probability,
-                        0,
-                        1
-                    )
-                )
-            )
-
-            st.caption(
-                f"Non-allergen model score: "
-                f"{non_allergen_score:.2f}%"
-            )
-
-    # Structure processing information
-
-    st.markdown(
-        "### Structure Processing"
-    )
-
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric(
-        "Supported Atoms",
-        f"{result['total']:,}"
-    )
-
-    col2.metric(
-        "Atoms Outside Grid",
-        f"{result['outside']:,}"
-    )
-
-    retained = (
-
-        100 * (
-            result["total"] - result["outside"]
-        ) / result["total"]
-
-        if result["total"] > 0
-
-        else 0
-
-    )
-
-    col3.metric(
-        "Atoms Retained",
-        f"{retained:.1f}%"
-    )
-
-    if result["outside"] > 0:
-
-        st.warning(
-            f"{result['outside']} supported atoms "
-            f"fell outside the {GRID_SIZE}³ voxel grid. "
-            "Interpret the prediction cautiously."
-        )
-
-    # Protein information
-
-    with st.expander(
-        "View Protein Information",
-        expanded=False
-    ):
-
-        render_protein_summary(
-            result["info"]
-        )
-
-        st.text_area(
-            "Extracted Amino Acid Sequence",
-            value=result["info"]["sequence"],
-            height=150,
-            disabled=True
-        )
-
-    # 3D structure preview
-
-    with st.expander(
-        "View 3D Protein Structure",
-        expanded=False
-    ):
-
-        show_3d_structure(
-            result["pdb_text"],
-            "Cartoon"
-        )
-
-    # PDF report
-
-    st.markdown(
-        "### Download Analysis Report"
-    )
-
-    pdf_bytes = create_pdf(
-
-        result["filename"],
-
-        prediction,
-
-        probability,
-
-        result["info"],
-
-        result["outside"],
-
-        result["total"]
-
-    )
-
-    st.download_button(
-
-        label="Download Protein Analysis Report",
-
-        data=pdf_bytes,
-
-        file_name=(
-            "AllergenAI_"
-            + result["filename"].rsplit(".", 1)[0]
-            + "_report.pdf"
-        ),
-
-        mime="application/pdf",
-
-        key="download_prediction_report"
-
-    )
-
- 
-# ============================================================
-# 18. SIDEBAR NAVIGATION
-# ============================================================
-
-with st.sidebar:
 
     st.markdown(
         """
-        <div class="brand-card">
-
-            <div class="brand-name">
-                🧬 AllergenAI
-            </div>
-
-            <div class="brand-caption">
-                PROTEIN INTELLIGENCE WORKSPACE
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        '<div class="small-label">WORKSPACE</div>',
-        unsafe_allow_html=True
-    )
-
-    page = st.radio(
-        "Navigate",
-        [
-            "Overview",
-            "Prediction Lab",
-            "Structure Explorer",
-            "Protein Insights",
-            "Model Evaluation",
-            "About the Research"
-        ],
-        label_visibility="collapsed"
+        AllergenAI is an experimental BioAI application
+        designed to explore protein allergen classification
+        using three-dimensional structural information.
+        """
     )
 
     st.divider()
-
-    st.markdown(
-        '<div class="small-label">MODEL CONFIGURATION</div>',
-        unsafe_allow_html=True
-    )
-
-    st.caption("Architecture · 3D CNN")
-
-    st.caption("Input · PDB Structure")
-
-    st.caption(
-        f"Voxel Grid · {GRID_SIZE} × {GRID_SIZE} × {GRID_SIZE}"
-    )
-
-    st.caption(
-        f"Compute · {'CUDA GPU' if DEVICE.type == 'cuda' else 'CPU'}"
-    )
-
-    st.divider()
-
-    st.caption(
-        "Experimental research prototype. "
-        "Not for clinical or food-safety decisions."
-    )
-
-
-# ============================================================
-# 19. OVERVIEW PAGE
-# ============================================================
-
-if page == "Overview":
-
-    show_header(
-        "PROTEIN STRUCTURE INTELLIGENCE",
-        "Explore protein allergenicity through 3D structure.",
-        "AllergenAI is an experimental BioAI workspace "
-        "for exploring protein structures, extracting "
-        "molecular information and generating experimental "
-        "allergen-class predictions using a 3D CNN."
-    )
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-
-        st.markdown(
-            """
-            <div class="soft-card">
-
-                <div class="section-kicker">
-                    01 · INPUT
-                </div>
-
-                <h3>Protein Structure</h3>
-
-                <p>
-                    Upload a PDB file and validate
-                    the structure before analysis.
-                </p>
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    with col2:
-
-        st.markdown(
-            """
-            <div class="soft-card">
-
-                <div class="section-kicker">
-                    02 · REPRESENTATION
-                </div>
-
-                <h3>3D Voxel Encoding</h3>
-
-                <p>
-                    Represent supported atom coordinates
-                    in a five-channel 3D grid.
-                </p>
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    with col3:
-
-        st.markdown(
-            """
-            <div class="soft-card">
-
-                <div class="section-kicker">
-                    03 · OUTPUT
-                </div>
-
-                <h3>Model Prediction</h3>
-
-                <p>
-                    Explore the binary model output
-                    and supporting structural information.
-                </p>
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    st.write("")
-
-    st.markdown(
-        "### Explore the workspace"
-    )
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        st.markdown(
-            """
-            <div class="soft-card">
-
-                <h3>🔬 Prediction Lab</h3>
-
-                <p>
-                    Run the trained 3D CNN on a PDB
-                    structure, review its output,
-                    inspect processing diagnostics
-                    and export a PDF report.
-                </p>
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    with col2:
-
-        st.markdown(
-            """
-            <div class="soft-card">
-
-                <h3>🧬 Structure Explorer</h3>
-
-                <p>
-                    Inspect uploaded protein structures
-                    interactively and switch between
-                    molecular representations.
-                </p>
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    st.write("")
-
-    st.info(
-        "To begin, open Prediction Lab and upload "
-        "a valid PDB file. Your trained model file "
-        "must be present beside app.py."
-    )
-
-
-# ============================================================
-# 20. PREDICTION LAB
-# ============================================================
-
-elif page == "Prediction Lab":
-
-    show_header(
-        "ANALYSIS WORKSPACE",
-        "Prediction Lab",
-        "Upload a protein structure, validate its "
-        "contents and run the trained 3D CNN classifier."
-    )
-
-    uploaded = render_upload(
-        "Upload a Protein PDB File",
-        "prediction_upload"
-    )
-
-    if uploaded is not None:
-
-        st.write("")
-
-        with st.container(border=True):
-
-            st.markdown(
-                "#### Ready for Analysis"
-            )
-
-            col1, col2, col3 = st.columns(3)
-
-            col1.metric(
-                "File",
-                uploaded["name"]
-            )
-
-            col2.metric(
-                "File Size",
-                f"{len(uploaded['bytes']) / 1024:.1f} KB"
-            )
-
-            col3.metric(
-                "Structure Status",
-                "Validated"
-            )
-
-            if st.button(
-                "Run Allergen Prediction",
-                type="primary",
-                use_container_width=True
-            ):
-
-                try:
-
-                    with st.spinner(
-                        "Encoding structure and running 3D CNN..."
-                    ):
-
-                        (
-                            prediction,
-                            probability,
-                            outside,
-                            total
-                        ) = predict_protein(
-                            uploaded["text"]
-                        )
-
-                        info = get_protein_information(
-                            uploaded["text"]
-                        )
-
-                    st.session_state["prediction_result"] = {
-
-                        "signature": uploaded["signature"],
-
-                        "filename": uploaded["name"],
-
-                        "prediction": prediction,
-
-                        "probability": probability,
-
-                        "outside": outside,
-
-                        "total": total,
-
-                        "info": info,
-
-                        "pdb_text": uploaded["text"]
-
-                    }
-
-                    st.success(
-                        "Prediction completed successfully."
-                    )
-
-                except FileNotFoundError as exc:
-
-                    st.error(str(exc))
-
-                except Exception as exc:
-
-                    st.error(
-                        f"Prediction failed: {exc}"
-                    )
-
-    result = st.session_state.get(
-        "prediction_result"
-    )
-
-    if uploaded is not None and result is not None:
-
-        if result.get("signature") == uploaded["signature"]:
-
-            st.write("")
-
-            render_result(result)
-
-        else:
-
-            st.info(
-                "A different PDB file is selected. "
-                "Run prediction again to generate "
-                "a result for this structure."
-            )
-
-
-# ============================================================
-# 21. STRUCTURE EXPLORER
-# ============================================================
-
-elif page == "Structure Explorer":
-
-    show_header(
-        "MOLECULAR VIEWER",
-        "Structure Explorer",
-        "Explore the three-dimensional arrangement "
-        "of atoms and chains in a PDB structure."
-    )
-
-    uploaded = render_upload(
-        "Choose a PDB Structure",
-        "viewer_upload"
-    )
-
-    if uploaded is not None:
-
-        col1, col2 = st.columns([1, 2])
-
-        with col1:
-
-            style = st.selectbox(
-                "Molecular Representation",
-                [
-                    "Cartoon",
-                    "Stick",
-                    "Sphere",
-                    "Surface"
-                ]
-            )
-
-        with col2:
-
-            st.caption(
-                "Drag to rotate, scroll to zoom, "
-                "and use the representation selector "
-                "to change the molecular view."
-            )
-
-        with st.container(border=True):
-
-            show_3d_structure(
-                uploaded["text"],
-                style
-            )
-
-        info = get_protein_information(
-            uploaded["text"]
-        )
-
-        st.markdown(
-            "### Structure Overview"
-        )
-
-        render_protein_summary(info)
-
-
-# ============================================================
-# 22. PROTEIN INSIGHTS
-# ============================================================
-
-elif page == "Protein Insights":
-
-    show_header(
-        "STRUCTURAL CHARACTERIZATION",
-        "Protein Insights",
-        "Extract protein sequence information, "
-        "chain counts, molecular weight and "
-        "elemental composition from a PDB structure."
-    )
-
-    uploaded = render_upload(
-        "Upload a PDB File for Analysis",
-        "analysis_upload"
-    )
-
-    if uploaded is not None:
-
-        try:
-
-            info = get_protein_information(
-                uploaded["text"]
-            )
-
-            st.markdown(
-                "### Protein Overview"
-            )
-
-            render_protein_summary(info)
-
-            st.write("")
-
-            st.markdown(
-                "### Amino Acid Sequence"
-            )
-
-            st.text_area(
-                "Extracted Protein Sequence",
-                value=info["sequence"],
-                height=170,
-                disabled=True
-            )
-
-            st.caption(
-                f"Sequence Length: {len(info['sequence']):,} residues"
-            )
-
-            st.caption(
-                "Chains: "
-                + (
-                    ", ".join(info["chains"])
-                    if info["chains"]
-                    else "None"
-                )
-            )
-
-            st.divider()
-
-            st.markdown(
-                "### Molecular Composition"
-            )
-
-            render_composition(info)
-
-            st.divider()
-
-            st.markdown(
-                "### Chain-Level Sequences"
-            )
-
-            for chain_id, sequence in info["sequences"].items():
-
-                with st.expander(
-                    f"Chain {chain_id} · {len(sequence)} residues"
-                ):
-
-                    st.code(
-                        sequence or "No standard amino-acid sequence."
-                    )
-
-        except Exception as exc:
-
-            st.error(
-                f"Protein analysis failed: {exc}"
-            )
-
-
-# ============================================================
-# 23. MODEL EVALUATION
-# ============================================================
-
-elif page == "Model Evaluation":
-
-    show_header(
-        "MODEL TRANSPARENCY",
-        "Model Evaluation",
-        "Review the evaluation metrics saved from "
-        "the trained 3D CNN. Only values present "
-        "in your supplied metrics file are displayed."
-    )
-
-    if not METRICS_PATH.exists():
-
-        st.warning(
-            f"Evaluation file not found: {METRICS_PATH.name}. "
-            "Place the CSV in the same folder as app.py."
-        )
-
-    else:
-
-        try:
-
-            metrics = pd.read_csv(
-                METRICS_PATH
-            )
-
-            if metrics.empty:
-
-                st.info(
-                    "The evaluation metrics CSV is empty."
-                )
-
-            else:
-
-                st.markdown(
-                    "### Evaluation Data"
-                )
-
-                st.dataframe(
-                    metrics,
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-                normalized = {
-
-                    str(col).strip().lower(): col
-
-                    for col in metrics.columns
-
-                }
-
-                metric_col = next(
-
-                    (
-                        normalized[key]
-
-                        for key in (
-                            "metric",
-                            "metrics",
-                            "evaluation_metric",
-                            "name"
-                        )
-
-                        if key in normalized
-
-                    ),
-
-                    None
-
-                )
-
-                value_col = next(
-
-                    (
-                        normalized[key]
-
-                        for key in (
-                            "value",
-                            "score",
-                            "metric_value"
-                        )
-
-                        if key in normalized
-
-                    ),
-
-                    None
-
-                )
-
-                if metric_col is not None and value_col is not None:
-
-                    plot_df = metrics[
-                        [metric_col, value_col]
-                    ].copy()
-
-                    plot_df[value_col] = pd.to_numeric(
-                        plot_df[value_col],
-                        errors="coerce"
-                    )
-
-                    plot_df = plot_df.dropna(
-                        subset=[value_col]
-                    )
-
-                    if not plot_df.empty:
-
-                        st.markdown(
-                            "### Metric Visualization"
-                        )
-
-                        st.bar_chart(
-                            plot_df.set_index(metric_col),
-                            height=320
-                        )
-
-                else:
-
-                    st.info(
-                        "A chart was not generated because "
-                        "the CSV does not contain recognizable "
-                        "metric-name and value columns."
-                    )
-
-        except Exception as exc:
-
-            st.error(
-                f"Could not read evaluation metrics: {exc}"
-            )
-
-    st.divider()
-
-    st.markdown(
-        "### Model Configuration"
-    )
 
     col1, col2, col3 = st.columns(3)
 
     col1.metric(
-        "Architecture",
+        "Deep Learning Model",
         "3D CNN"
     )
 
     col2.metric(
-        "Input Grid",
-        f"{GRID_SIZE}³"
+        "Input Structure",
+        "PDB"
     )
 
     col3.metric(
-        "Input Channels",
-        len(ELEMENTS)
+        "Classification",
+        "Binary"
     )
 
-    st.caption(
-        "Evaluation results are taken directly from "
-        "the supplied CSV. Missing values are not assumed."
+    st.divider()
+
+    st.subheader("Explore AllergenAI")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        render_html("""
+            <div style="
+                background: rgba(20,53,72,0.8);
+                border: 1px solid #2dd4bf;
+                border-radius: 16px;
+                padding: 22px;
+                min-height: 165px;
+            ">
+                <h3>🔬 Protein Prediction</h3>
+                <p>Upload a protein PDB structure and
+                obtain an experimental allergen prediction.</p>
+            </div>
+            """)
+
+        st.write("")
+
+        render_html("""
+            <div style="
+                background: rgba(20,53,72,0.8);
+                border: 1px solid #2dd4bf;
+                border-radius: 16px;
+                padding: 22px;
+                min-height: 165px;
+            ">
+                <h3>📊 Protein Analysis</h3>
+                <p>Explore protein sequences, amino acid
+                composition, molecular weight and atom counts.</p>
+            </div>
+            """)
+
+    with col2:
+
+        render_html("""
+            <div style="
+                background: rgba(20,53,72,0.8);
+                border: 1px solid #2dd4bf;
+                border-radius: 16px;
+                padding: 22px;
+                min-height: 165px;
+            ">
+                <h3>🧬 3D Structure Viewer</h3>
+                <p>Rotate, zoom and explore uploaded protein
+                structures interactively.</p>
+            </div>
+            """)
+
+        st.write("")
+
+        render_html("""
+            <div style="
+                background: rgba(20,53,72,0.8);
+                border: 1px solid #2dd4bf;
+                border-radius: 16px;
+                padding: 22px;
+                min-height: 165px;
+            ">
+                <h3>📈 Model Performance</h3>
+                <p>Review the available evaluation metrics
+                from the trained 3D CNN.</p>
+            </div>
+            """)
+
+    st.divider()
+
+    st.info(
+        "Upload a PDB file in Protein Prediction to begin."
     )
 
 
-# ============================================================
-# 24. ABOUT THE RESEARCH
-# ============================================================
+# =========================================================
+# 15. PROTEIN PREDICTION PAGE
+# =========================================================
 
-elif page == "About the Research":
+elif page == "Protein Prediction":
 
     show_header(
-        "PROJECT INFORMATION",
-        "About AllergenAI",
-        "A research prototype exploring three-dimensional "
-        "protein structural information for binary "
-        "allergen and non-allergen classification."
+        "Protein Prediction",
+        "Upload a PDB file to analyse its structure and predict allergen classification"
     )
 
-    st.markdown(
-        "### Research Objective"
+    uploaded_file = st.file_uploader(
+        "Upload Protein PDB File",
+        type=["pdb"],
+        key="prediction_upload"
     )
 
-    st.write(
-        """
-        The objective of AllergenAI is to explore whether
-        three-dimensional protein structural representations
-        can support allergen and non-allergen classification
-        using deep learning.
-        """
-    )
+    if uploaded_file is not None:
 
-    st.divider()
+        pdb_bytes = uploaded_file.getvalue()
 
-    st.markdown(
-        "### Computational Workflow"
-    )
-
-    steps = [
-
-        (
-            "01",
-            "PDB Input",
-            "A protein structure is supplied in PDB format."
-        ),
-
-        (
-            "02",
-            "Atom Extraction",
-            "Coordinates for C, N, O, S and P atoms are extracted."
-        ),
-
-        (
-            "03",
-            "Voxel Representation",
-            "Coordinates are centered and mapped to a 48 × 48 × 48 grid."
-        ),
-
-        (
-            "04",
-            "3D CNN",
-            "The voxel tensor is passed through the trained 3D CNN."
-        ),
-
-        (
-            "05",
-            "Binary Output",
-            "The sigmoid score is thresholded at 0.50 for the two classes."
+        st.success(
+            f"Uploaded successfully: {uploaded_file.name}"
         )
 
-    ]
+        st.caption(
+            f"File size: {len(pdb_bytes) / 1024:.2f} KB"
+        )
 
-    for number, title, description in steps:
+        if st.button(
+            "🔬 Predict Allergenicity",
+            type="primary"
+        ):
 
-        with st.container(border=True):
+            temp_path = None
 
-            col1, col2 = st.columns([0.16, 1])
+            try:
 
-            with col1:
+                with st.spinner(
+                    "Loading model and analysing protein structure..."
+                ):
 
-                st.markdown(
-                    f"### {number}"
+                    with tempfile.NamedTemporaryFile(
+                        suffix=".pdb",
+                        delete=False
+                    ) as temp_file:
+
+                        temp_file.write(pdb_bytes)
+
+                        temp_path = temp_file.name
+
+                    prediction, probability, outside, total = (
+                        predict_protein(temp_path)
+                    )
+
+                    info = get_protein_information(
+                        temp_path
+                    )
+
+                st.session_state["prediction_result"] = {
+
+                    "filename": uploaded_file.name,
+
+                    "prediction": prediction,
+
+                    "probability": probability,
+
+                    "outside": outside,
+
+                    "total": total,
+
+                    "info": info,
+
+                    "pdb_text": pdb_bytes.decode(
+                        "utf-8",
+                        errors="replace"
+                    )
+
+                }
+
+            except Exception as e:
+
+                st.error(
+                    f"Prediction failed: {str(e)}"
                 )
 
-            with col2:
+            finally:
 
-                st.markdown(
-                    f"**{title}**"
+                if (
+                    temp_path is not None
+                    and os.path.exists(temp_path)
+                ):
+
+                    os.remove(temp_path)
+
+        result = st.session_state.get(
+            "prediction_result"
+        )
+
+        if (
+            result is not None
+            and result["filename"] == uploaded_file.name
+        ):
+
+            st.divider()
+
+            st.subheader("Prediction Results")
+
+            prediction = result["prediction"]
+
+            probability = result["probability"]
+
+            if prediction == "Allergen":
+
+                st.error(
+                    "PREDICTION: ALLERGEN"
                 )
 
-                st.caption(
-                    description
+            else:
+
+                st.success(
+                    "PREDICTION: NON-ALLERGEN"
                 )
 
-    st.divider()
+            col1, col2 = st.columns(2)
 
-    st.markdown(
-        "### Model Architecture"
+            col1.metric(
+                "Allergen Probability",
+                f"{probability * 100:.2f}%"
+            )
+
+            col2.metric(
+                "Non-Allergen Probability",
+                f"{(1-probability)*100:.2f}%"
+            )
+
+            st.write("Allergen probability")
+
+            st.progress(
+                float(probability)
+            )
+
+            st.divider()
+
+            st.subheader("Protein Structure Information")
+
+            col1, col2, col3 = st.columns(3)
+
+            col1.metric(
+                "Amino Acid Residues",
+                result["info"]["residues"]
+            )
+
+            col2.metric(
+                "Supported Atoms",
+                result["total"]
+            )
+
+            col3.metric(
+                "Atoms Outside Grid",
+                result["outside"]
+            )
+
+            if result["outside"] > 0:
+
+                st.warning(
+                    "Some atoms were outside the voxel grid. "
+                    "Interpret this prediction cautiously."
+                )
+
+            st.divider()
+
+            st.subheader("Protein 3D Preview")
+
+            show_3d_structure(
+                result["pdb_text"],
+                "Cartoon"
+            )
+
+            st.divider()
+
+            st.subheader("Download Your Analysis Report")
+
+            pdf = create_pdf(
+                result["filename"],
+                prediction,
+                probability,
+                result["info"],
+                result["outside"],
+                result["total"]
+            )
+
+            st.download_button(
+                label="📄 Download PDF Report",
+                data=pdf,
+                file_name="AllergenAI_Protein_Report.pdf",
+                mime="application/pdf"
+            )
+
+            st.warning(
+                "This is an experimental research prediction, "
+                "not a clinical diagnosis or confirmation of "
+                "allergenicity. Model probabilities are not "
+                "necessarily calibrated clinical risks."
+            )
+
+
+# =========================================================
+# 16. 3D STRUCTURE VIEWER PAGE
+# =========================================================
+
+elif page == "3D Structure Viewer":
+
+    show_header(
+        "3D Protein Structure Viewer",
+        "Explore protein structures in an interactive molecular viewer"
     )
+
+    uploaded_file = st.file_uploader(
+        "Upload a PDB structure",
+        type=["pdb"],
+        key="viewer_upload"
+    )
+
+    if uploaded_file is not None:
+
+        pdb_text = uploaded_file.getvalue().decode(
+            "utf-8",
+            errors="replace"
+        )
+
+        st.success(
+            f"Structure loaded: {uploaded_file.name}"
+        )
+
+        style = st.selectbox(
+            "Choose molecular representation",
+            [
+                "Cartoon",
+                "Stick",
+                "Sphere",
+                "Surface"
+            ]
+        )
+
+        st.subheader("Interactive Protein Structure")
+
+        try:
+
+            show_3d_structure(
+                pdb_text,
+                style
+            )
+
+            st.caption(
+                "Drag to rotate, scroll to zoom and "
+                "use the viewer controls to explore the molecule."
+            )
+
+        except Exception as e:
+
+            st.error(
+                f"3D viewer error: {str(e)}"
+            )
+
+
+# =========================================================
+# 17. PROTEIN ANALYSIS PAGE
+# =========================================================
+
+elif page == "Protein Analysis":
+
+    show_header(
+        "Protein Analysis",
+        "Explore amino acid sequences and structural composition"
+    )
+
+    uploaded_file = st.file_uploader(
+        "Upload a PDB file",
+        type=["pdb"],
+        key="analysis_upload"
+    )
+
+    if uploaded_file is not None:
+
+        temp_path = None
+
+        try:
+
+            with tempfile.NamedTemporaryFile(
+                suffix=".pdb",
+                delete=False
+            ) as temp_file:
+
+                temp_file.write(
+                    uploaded_file.getvalue()
+                )
+
+                temp_path = temp_file.name
+
+            info = get_protein_information(
+                temp_path
+            )
+
+            st.subheader("General Protein Information")
+
+            col1, col2, col3 = st.columns(3)
+
+            col1.metric(
+                "Residues",
+                info["residues"]
+            )
+
+            col2.metric(
+                "Total Atoms",
+                info["atoms"]
+            )
+
+            col3.metric(
+                "Number of Chains",
+                len(info["chains"])
+            )
+
+            if info["molecular_weight"] is not None:
+
+                st.metric(
+                    "Molecular Weight",
+                    f"{info['molecular_weight']:,.2f} Da"
+                )
+
+            st.divider()
+
+            st.subheader("Amino Acid Sequence")
+
+            st.text_area(
+                "Extracted protein sequence",
+                value=info["sequence"],
+                height=180
+            )
+
+            st.write(
+                "Sequence length:",
+                len(info["sequence"])
+            )
+
+            st.divider()
+
+            st.subheader("Amino Acid Composition")
+
+            amino_df = pd.DataFrame(
+                list(info["amino_acids"].items()),
+                columns=[
+                    "Amino Acid",
+                    "Count"
+                ]
+            )
+
+            if not amino_df.empty:
+
+                st.bar_chart(
+                    amino_df.set_index("Amino Acid")
+                )
+
+                st.dataframe(
+                    amino_df,
+                    use_container_width=True
+                )
+
+            st.divider()
+
+            st.subheader("Atom Composition")
+
+            atom_df = pd.DataFrame(
+                list(info["elements"].items()),
+                columns=[
+                    "Element",
+                    "Atom Count"
+                ]
+            )
+
+            st.bar_chart(
+                atom_df.set_index("Element")
+            )
+
+            st.dataframe(
+                atom_df,
+                use_container_width=True
+            )
+
+            st.write(
+                "Protein chains:",
+                ", ".join(info["chains"])
+            )
+
+        except Exception as e:
+
+            st.error(
+                f"Protein analysis failed: {str(e)}"
+            )
+
+        finally:
+
+            if (
+                temp_path is not None
+                and os.path.exists(temp_path)
+            ):
+
+                os.remove(temp_path)
+
+
+# =========================================================
+# 18. MODEL PERFORMANCE PAGE
+# =========================================================
+
+elif page == "Model Performance":
+
+    show_header(
+        "Model Performance",
+        "Review the evaluation results of the trained 3D CNN"
+    )
+
+    if METRICS_PATH.exists():
+
+        metrics = pd.read_csv(
+            METRICS_PATH
+        )
+
+        st.subheader("Evaluation Metrics")
+
+        st.dataframe(
+            metrics,
+            use_container_width=True
+        )
+
+        numeric_columns = metrics.select_dtypes(
+            include=np.number
+        ).columns.tolist()
+
+        if numeric_columns:
+
+            st.divider()
+
+            st.subheader("Metric Visualization")
+
+            st.bar_chart(
+                metrics[numeric_columns]
+            )
+
+        else:
+
+            st.info(
+                "The metrics file does not contain numeric columns."
+            )
+
+    else:
+
+        st.warning(
+            "Evaluation metrics file not found."
+        )
+
+    st.caption(
+        "Only metrics available in the supplied evaluation file "
+        "are displayed. No missing performance values are assumed."
+    )
+
+
+# =========================================================
+# 19. ABOUT PROJECT PAGE
+# =========================================================
+
+elif page == "About Project":
+
+    show_header(
+        "About AllergenAI",
+        "A research prototype for protein allergen classification using deep learning"
+    )
+
+    st.subheader("Project Objective")
 
     st.write(
         """
-        The current implementation contains three 3D
-        convolutional blocks, batch normalization,
-        ReLU activations, max pooling, adaptive average
-        pooling and fully connected classification layers.
+        The objective of AllergenAI is to explore the use
+        of three-dimensional protein structural information
+        for allergen and non-allergen classification.
         """
     )
 
-    col1, col2, col3 = st.columns(3)
+    st.divider()
+
+    st.subheader("Model Architecture")
+
+    st.markdown(
+        """
+        - 3D Convolutional Neural Network
+        - Three convolutional blocks
+        - Batch normalization
+        - ReLU activation
+        - Max pooling
+        - Adaptive average pooling
+        - Fully connected classification layers
+        """
+    )
+
+    st.divider()
+
+    st.subheader("Input Representation")
+
+    col1, col2 = st.columns(2)
 
     col1.metric(
         "Voxel Grid",
@@ -2384,74 +1522,60 @@ elif page == "About the Research":
         "2.5 Å"
     )
 
-    col3.metric(
-        "Atom Channels",
-        "5"
-    )
-
-    st.caption(
-        "Channels: Carbon · Nitrogen · Oxygen · Sulfur · Phosphorus"
+    st.write(
+        "Atom channels: Carbon, Nitrogen, Oxygen, Sulfur and Phosphorus."
     )
 
     st.divider()
 
+    st.subheader("Model Output")
+
+    st.write(
+        """
+        The current model performs binary classification:
+
+        - Allergen
+        - Non-Allergen
+        """
+    )
+
+    st.divider()
+
+    st.subheader("Future Development")
+
     st.markdown(
-        "### Scope and Limitations"
+        """
+        - Allergen source classification
+        - Allergen protein family classification
+        - Improved structural feature analysis
+        - Model interpretability
+        - Larger and more diverse structural datasets
+        """
     )
 
     st.warning(
-        """
-        The current application performs whole-protein
-        binary classification. It does not currently
-        identify, localize or visualize allergenic
-        binding pockets. Pocket detection would require
-        a separate computational method and validation.
-        """
-    )
-
-    st.info(
-        """
-        AllergenAI is an experimental research application.
-        Its outputs should not be used as a clinical diagnosis,
-        food-safety decision, regulatory classification or
-        substitute for experimental allergenicity testing.
-        """
+        "AllergenAI is an experimental research prototype. "
+        "Its predictions require independent experimental "
+        "validation and should not be used for clinical or "
+        "food-safety decisions."
     )
 
 
-# ============================================================
-# 25. APPLICATION FOOTER
-# ============================================================
+# =========================================================
+# 20. FOOTER
+# =========================================================
 
-st.markdown(
-    """
+render_html("""
     <hr>
 
     <div style="
-        text-align:center;
-        padding:12px 0 2px 0;
+        text-align: center;
+        padding: 15px;
+        color: #8baebb;
+        font-size: 12px;
     ">
-
-        <div style="
-            font-family:Manrope,sans-serif;
-            color:#087f78;
-            font-weight:800;
-        ">
-            🧬 AllergenAI
-        </div>
-
-        <div style="
-            font-size:11px;
-            color:#809396;
-            margin-top:4px;
-        ">
-            Protein Structure Intelligence
-            · Experimental BioAI Research Application
-        </div>
-
+        🧬 AllergenAI | AI-Based Protein Structure Analysis
+        <br>
+        Experimental BioAI Research Application
     </div>
-    """,
-    unsafe_allow_html=True
-)
-
-
+    """)
