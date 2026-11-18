@@ -1,6 +1,6 @@
 # AllergenAI — Explainable 3D CNN for Protein Allergen Prediction
 
-> **BioAI Capstone Project | Computational Allergenicity Prediction | 3D Deep Learning**
+> **AI for Molecular Science Capstone Project | Computational Allergenicity Prediction | 3D Deep Learning**
 
 An experimental AI-based system that uses three-dimensional protein structure representations and a 3D Convolutional Neural Network (3D CNN) to classify proteins as allergen or non-allergen.
 
